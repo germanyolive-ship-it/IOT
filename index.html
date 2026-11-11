@@ -171,6 +171,7 @@ summary{cursor:pointer;font-weight:700}
 @media print{#hdr,#tabs,#side,#drawer,#scrim,.tact,.nav2,.btn,#pbar,.sticky-nav{display:none!important}body{background:#fff;color:#000}body::before{display:none}.box,.card,.fig{break-inside:avoid;background:#fff!important;border-color:#999}.ans{display:block!important;background:#fff}#wrap{display:block!important}.topic{break-inside:auto}:root{--text:#000;--muted:#333;--line:#999;--card:#fff;--card2:#fff;--bg:#fff;--bg2:#fff;--cyan:#036;--violet:#306;--code:#f3f3f3}}
 .stk{display:flex;flex-direction:column;gap:4px;direction:ltr;max-width:640px}.stk>div{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card2);text-align:center}
 .stk>div:first-child{border-color:var(--cyan)}
+.lt{direction:ltr;unicode-bidi:isolate}
 </style>
 </head>
 <body>
@@ -1925,6 +1926,7 @@ function render(keep){
  curView=v;setTabs(v);$('#wrap').className=v==='read'?'hasside':'';
  const y=window.scrollY;
  try{V[v](r.a)}catch(err){$('#main').innerHTML='<div class="page"><div class="box trap"><span class="bt">Rendering error</span>'+esc(err.message)+'</div></div>';console.error(err)}
+ fixBidi($('#main'));
  if(v!=='read'){if(keep)window.scrollTo(0,y);else window.scrollTo(0,0)}
  if(v!=='read'&&!drawerReady){refreshToc();drawerReady=true}
  closeDrawer();
@@ -2004,6 +2006,55 @@ function init(){
  sq.addEventListener('keydown',e=>{if(e.key==='Enter'){const v=sq.value.trim();if(v)location.hash='#/s/'+encodeURIComponent(v)}});
  render(false);
 }
+/* ===== RTL / BiDi fix ===== */
+const AR_RE=/[؀-ۿݐ-ݿ]/;
+const LAT_SRC="[(\\[]?[A-Za-z0-9][A-Za-z0-9_\\-.\\/+#%:'’@=<>&*°μ×→⟶←⇄≥≤~,;()\\[\\] ]*";
+const BIDI_SKIP='script,style,svg,code,textarea,input,.ltr,.lt,.qtext,.opt,.ans,.stk,.box.def,[dir=ltr],.timer,.stat,.tnum,.ttl h2,.fig figcaption';
+const BLOCK_SKIP='.ltr,.box.def,.ans,.qtext,.opt,.stk';
+
+function splitRun(m){
+  const cnt=(s,c)=>s.split(c).length-1;
+  let a=0,b=m.length,core;
+  while(b>a&&!/[A-Za-z0-9)\]%+#°]/.test(m[b-1]))b--;
+  core=m.slice(a,b);
+  while(core.endsWith(')')&&cnt(core,')')>cnt(core,'(')){b--;core=m.slice(a,b)}
+  while(core.endsWith(']')&&cnt(core,']')>cnt(core,'[')){b--;core=m.slice(a,b)}
+  while(core[0]==='('&&cnt(core,'(')>cnt(core,')')){a++;core=m.slice(a,b)}
+  while(core[0]==='['&&cnt(core,'[')>cnt(core,']')){a++;core=m.slice(a,b)}
+  return [m.slice(0,a),core,m.slice(b)];
+}
+
+function fixBidi(root){
+  if(!root)return;
+  root.querySelectorAll('p,li,td,th,h3,.bt,.stepnote,summary').forEach(e=>{
+    if(e.closest(BLOCK_SKIP)||e.hasAttribute('dir'))return;
+    e.setAttribute('dir',AR_RE.test(e.textContent)?'rtl':'ltr');
+  });
+  const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),nodes=[];
+  while(w.nextNode())nodes.push(w.currentNode);
+  const cache=new Map();
+  const isRtl=el=>{if(!cache.has(el))cache.set(el,getComputedStyle(el).direction==='rtl');return cache.get(el)};
+  nodes.forEach(n=>{
+    const p=n.parentElement;
+    if(!p||p.closest(BIDI_SKIP)||!isRtl(p))return;
+    const s=n.nodeValue,re=new RegExp(LAT_SRC,'g');
+    let last=0,m,frag=null;
+    while((m=re.exec(s))){
+      const [lead,core]=splitRun(m[0]);
+      if(!/[A-Za-z]/.test(core))continue;
+      frag=frag||document.createDocumentFragment();
+      const st=m.index+lead.length;
+      frag.append(s.slice(last,st));
+      const sp=document.createElement('span');
+      sp.className='lt';sp.textContent=core;
+      frag.append(sp);
+      last=st+core.length;
+      re.lastIndex=last;
+    }
+    if(frag){frag.append(s.slice(last));n.replaceWith(frag)}
+  });
+}
+
 init();
 
 </script></body></html>
